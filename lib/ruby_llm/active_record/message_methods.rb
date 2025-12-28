@@ -36,7 +36,8 @@ module RubyLLM
             RubyLLM::ToolCall.new(
               id: tool_call.tool_call_id,
               name: tool_call.name,
-              arguments: tool_call.arguments
+              arguments: tool_call.arguments,
+              thought_signature: tool_call.try(:thought_signature)
             )
           ]
         end

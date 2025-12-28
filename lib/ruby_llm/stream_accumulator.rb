@@ -8,6 +8,7 @@ module RubyLLM
     def initialize
       @content = +''
       @tool_calls = {}
+      @thought_signature = nil
       @input_tokens = nil
       @output_tokens = nil
       @cached_tokens = nil
@@ -46,6 +47,7 @@ module RubyLLM
     private
 
     def tool_calls_from_stream
+      first = true
       tool_calls.transform_values do |tc|
         arguments = if tc.arguments.is_a?(String) && !tc.arguments.empty?
                       JSON.parse(tc.arguments)
@@ -55,10 +57,14 @@ module RubyLLM
                       tc.arguments
                     end
 
+        sig = tc.thought_signature || (first ? @thought_signature : nil)
+        first = false if sig
+
         ToolCall.new(
           id: tc.id,
           name: tc.name,
-          arguments: arguments
+          arguments: arguments,
+          thought_signature: sig
         )
       end
     end
@@ -69,10 +75,12 @@ module RubyLLM
         if tool_call.id
           tool_call_id = tool_call.id.empty? ? SecureRandom.uuid : tool_call.id
           tool_call_arguments = tool_call.arguments.empty? ? +'' : tool_call.arguments
+          @thought_signature ||= tool_call.thought_signature
           @tool_calls[tool_call.id] = ToolCall.new(
             id: tool_call_id,
             name: tool_call.name,
-            arguments: tool_call_arguments
+            arguments: tool_call_arguments,
+            thought_signature: tool_call.thought_signature
           )
           @latest_tool_call_id = tool_call.id
         else

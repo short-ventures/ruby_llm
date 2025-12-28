@@ -22,6 +22,7 @@ module RubyLLM
       @params = {}
       @headers = {}
       @schema = nil
+      @thinking_config = nil
       @on = {
         new_message: nil,
         end_message: nil,
@@ -97,6 +98,26 @@ module RubyLLM
       self
     end
 
+    def with_thinking_config(level: nil, include_thoughts: nil, budget_tokens: nil)
+      config = {}
+
+      if level
+        normalized_level = level.to_s.upcase
+        config[:thinkingLevel] = normalized_level
+      end
+
+      unless include_thoughts.nil?
+        config[:includeThoughts] = !!include_thoughts
+      end
+
+      unless budget_tokens.nil?
+        config[:budgetTokens] = budget_tokens
+      end
+
+      @thinking_config = config if config.any?
+      self
+    end
+
     def on_new_message(&block)
       @on[:new_message] = block
       self
@@ -127,7 +148,7 @@ module RubyLLM
         tools: @tools,
         temperature: @temperature,
         model: @model,
-        params: @params,
+      params: effective_params,
         headers: @headers,
         schema: @schema,
         &wrap_streaming_block(&)
@@ -208,6 +229,25 @@ module RubyLLM
       tool = tools[tool_call.name.to_sym]
       args = tool_call.arguments
       tool.call(args)
+    end
+
+    def effective_params
+      params = RubyLLM::Utils.deep_dup(@params)
+
+      # Avoid clobbering an explicit caller-provided thinkingConfig
+      has_thinking_config =
+        params.key?(:thinkingConfig) || params.key?('thinkingConfig') ||
+        params.dig(:generationConfig, :thinkingConfig) ||
+        params.dig('generationConfig', 'thinkingConfig')
+
+      unless has_thinking_config
+        if @thinking_config
+          params[:generationConfig] ||= {}
+          params[:generationConfig][:thinkingConfig] ||= @thinking_config
+        end
+      end
+
+      params
     end
 
     def build_content(message, attachments)

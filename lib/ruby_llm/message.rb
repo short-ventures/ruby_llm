@@ -6,7 +6,7 @@ module RubyLLM
     ROLES = %i[system user assistant tool].freeze
 
     attr_reader :role, :model_id, :tool_calls, :tool_call_id, :input_tokens, :output_tokens,
-                :cached_tokens, :cache_creation_tokens, :raw
+                :cached_tokens, :cache_creation_tokens, :raw, :thoughts
     attr_writer :content
 
     def initialize(options = {})
@@ -20,6 +20,7 @@ module RubyLLM
       @cached_tokens = options[:cached_tokens]
       @cache_creation_tokens = options[:cache_creation_tokens]
       @raw = options[:raw]
+      @thoughts = normalize_thoughts(options[:thoughts])
 
       ensure_valid_role
     end
@@ -74,6 +75,13 @@ module RubyLLM
 
     def ensure_valid_role
       raise InvalidRoleError, "Expected role to be one of: #{ROLES.join(', ')}" unless ROLES.include?(role)
+    end
+
+    def normalize_thoughts(value)
+      return [] if value.nil?
+      return value if value.is_a?(Array)
+
+      [value]
     end
   end
 end

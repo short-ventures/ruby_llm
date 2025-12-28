@@ -90,12 +90,50 @@ module RubyLLM
           parts = candidate.dig('content', 'parts')
           return '' unless parts&.any?
 
-          build_response_content(parts)
+          build_response_content(filter_thought_parts(parts, candidate, data))
         end
 
         def function_call?(candidate)
           parts = candidate.dig('content', 'parts')
           parts&.any? { |p| p['functionCall'] }
+        end
+
+        def filter_thought_parts(parts, candidate, data)
+          thought_texts = collect_thought_texts(candidate, data, parts)
+          return parts if thought_texts.empty?
+
+          parts.reject { |part| part['text'] && thought_texts.include?(part['text']) }
+        end
+
+        def collect_thought_texts(candidate, data, parts = [])
+          collections = []
+          collections << candidate['thoughts'] if candidate.is_a?(Hash) && candidate['thoughts']
+          collections << data['thoughts'] if data.is_a?(Hash) && data['thoughts']
+          collections << extract_thought_parts(parts)
+
+          collections.flatten.compact.flat_map do |entry|
+            next entry if entry.is_a?(String)
+            next [] unless entry.is_a?(Hash)
+
+            texts = []
+            texts << entry['text'] if entry['text']
+
+            content_parts = entry.dig('content', 'parts')
+            if content_parts.is_a?(Array)
+              content_parts.each do |part|
+                texts << part['text'] if part.is_a?(Hash) && part['text']
+              end
+            end
+
+            texts
+          end.compact
+        end
+
+        def extract_thought_parts(parts)
+          Array(parts).filter_map do |part|
+            next unless part.is_a?(Hash) && part['thought']
+            part['text']
+          end
         end
 
         def calculate_output_tokens(data)

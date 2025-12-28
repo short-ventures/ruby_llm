@@ -131,6 +131,11 @@ module RubyLLM
         self
       end
 
+      def with_thinking_config(...)
+        to_llm.with_thinking_config(...)
+        self
+      end
+
       def with_context(context)
         to_llm(context: context)
         self

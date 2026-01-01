@@ -59,6 +59,29 @@ module RubyLLM
       }.compact
     end
 
+    # Create a copy of this message with overridden attributes.
+    # Useful for transforming messages without mutating the original.
+    def dup_with(**overrides)
+      # Use to_h_for_dup instead of to_h because to_h.compact removes nil content,
+      # but Message.new requires :content to be present (even if nil)
+      Message.new(to_h_for_dup.merge(overrides))
+    end
+
+    # Like to_h but preserves nil content for duplication purposes
+    def to_h_for_dup
+      {
+        role: role,
+        content: content,
+        model_id: model_id,
+        tool_calls: tool_calls,
+        tool_call_id: tool_call_id,
+        input_tokens: input_tokens,
+        output_tokens: output_tokens,
+        cached_tokens: cached_tokens,
+        cache_creation_tokens: cache_creation_tokens
+      }
+    end
+
     def instance_variables
       super - [:@raw]
     end

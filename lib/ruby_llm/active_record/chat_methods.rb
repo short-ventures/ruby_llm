@@ -95,7 +95,10 @@ module RubyLLM
           messages_association.where(role: :system).destroy_all if replace
           messages_association.create!(role: :system, content: instructions)
         end
-        to_llm.with_instructions(instructions)
+        # Just call to_llm to ensure the chat is initialized - the system message
+        # is already persisted and will be loaded via messages_association.each
+        # Don't call with_instructions again or it will duplicate the system prompt
+        to_llm
         self
       end
 

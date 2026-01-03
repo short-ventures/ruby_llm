@@ -83,33 +83,22 @@ module RubyLLM
         )
         @chat.reset_messages!
 
-        db_messages = messages_association.to_a
-        system_count = db_messages.count { |m| m.role.to_s == 'system' }
-        RubyLLM.logger.info "[ChatMethods#to_llm] Loading #{db_messages.size} messages from DB (#{system_count} system)"
-
-        db_messages.each do |msg|
+        messages_association.each do |msg|
           @chat.add_message(msg.to_llm)
         end
-
-        RubyLLM.logger.info "[ChatMethods#to_llm] @chat.messages now has #{@chat.messages.size} messages (#{@chat.messages.count { |m| m.role == :system }} system)"
 
         setup_persistence_callbacks
       end
 
       def with_instructions(instructions, replace: false)
-        existing_count = messages_association.where(role: :system).count
-        RubyLLM.logger.info "[ChatMethods#with_instructions] Before: #{existing_count} system messages, replace=#{replace}"
-
         transaction do
-          if replace
-            deleted = messages_association.where(role: :system).destroy_all
-            RubyLLM.logger.info "[ChatMethods#with_instructions] Deleted #{deleted.size} system messages"
-          end
+          messages_association.where(role: :system).destroy_all if replace
           messages_association.create!(role: :system, content: instructions)
         end
 
-        after_count = messages_association.where(role: :system).count
-        RubyLLM.logger.info "[ChatMethods#with_instructions] After: #{after_count} system messages in DB"
+        # Reload the association to clear the cached records and pick up the fresh state
+        # Without this, the association cache would still contain the deleted system message
+        messages_association.reload
 
         # Just call to_llm to ensure the chat is initialized - the system message
         # is already persisted and will be loaded via messages_association.each

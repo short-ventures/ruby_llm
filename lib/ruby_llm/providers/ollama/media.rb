@@ -12,6 +12,8 @@ module RubyLLM
         def format_content(content)
           return content.value if content.is_a?(RubyLLM::Content::Raw)
           return content.to_json if content.is_a?(Hash) || content.is_a?(Array)
+          # Handle lazy content - this triggers the actual download
+          return format_content(content.format) if content.is_a?(RubyLLM::Content::Lazy)
           return content unless content.is_a?(Content)
 
           parts = []

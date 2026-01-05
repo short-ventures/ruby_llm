@@ -48,18 +48,34 @@ module RubyLLM
       end
 
       def extract_content
-        # Fast path: use cached content_raw if available (no downloads needed)
         return RubyLLM::Content::Raw.new(content_raw) if has_attribute?(:content_raw) && content_raw.present?
 
         content_value = self[:content]
 
-        # No attachments: return plain text
         return content_value unless respond_to?(:attachments) && attachments.attached?
 
-        # Lazy loading: defer attachment downloads until format is called.
-        # This allows message filtering (ContextOptimizer) to run before any S3 downloads.
-        # Only messages that survive the filter will have their attachments downloaded.
-        RubyLLM::Content::Lazy.new(content_value, attachments.blobs.to_a)
+        RubyLLM::Content.new(content_value).tap do |content_obj|
+          @_tempfiles = []
+
+          attachments.each do |attachment|
+            tempfile = download_attachment(attachment)
+            content_obj.add_attachment(tempfile, filename: attachment.filename.to_s)
+          end
+        end
+      end
+
+      def download_attachment(attachment)
+        ext = File.extname(attachment.filename.to_s)
+        basename = File.basename(attachment.filename.to_s, ext)
+        tempfile = Tempfile.new([basename, ext])
+        tempfile.binmode
+
+        attachment.download { |chunk| tempfile.write(chunk) }
+
+        tempfile.flush
+        tempfile.rewind
+        @_tempfiles << tempfile
+        tempfile
       end
     end
   end

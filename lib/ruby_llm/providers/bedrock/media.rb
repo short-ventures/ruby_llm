@@ -13,8 +13,6 @@ module RubyLLM
         def format_content(content) # rubocop:disable Metrics/PerceivedComplexity
           return content.value if content.is_a?(RubyLLM::Content::Raw)
           return [Anthropic::Media.format_text(content.to_json)] if content.is_a?(Hash) || content.is_a?(Array)
-          # Handle lazy content - this triggers the actual download
-          return format_content(content.format) if content.is_a?(RubyLLM::Content::Lazy)
           return [Anthropic::Media.format_text(content)] unless content.is_a?(Content)
 
           parts = []

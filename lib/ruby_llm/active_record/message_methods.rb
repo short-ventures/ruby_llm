@@ -10,13 +10,17 @@ module RubyLLM
         attr_reader :chat_class, :tool_call_class, :chat_foreign_key, :tool_call_foreign_key
       end
 
-      def to_llm
+      def to_llm(skip_attachments: false)
+        # Return cached result if available and not stale
+        cache_key = [updated_at, skip_attachments]
+        return @_to_llm_cache if @_to_llm_cache && @_to_llm_cache_key == cache_key
+
         cached = has_attribute?(:cached_tokens) ? self[:cached_tokens] : nil
         cache_creation = has_attribute?(:cache_creation_tokens) ? self[:cache_creation_tokens] : nil
 
-        RubyLLM::Message.new(
+        result = RubyLLM::Message.new(
           role: role.to_sym,
-          content: extract_content,
+          content: extract_content(skip_attachments: skip_attachments),
           tool_calls: extract_tool_calls,
           tool_call_id: extract_tool_call_id,
           input_tokens: input_tokens,
@@ -25,6 +29,15 @@ module RubyLLM
           cache_creation_tokens: cache_creation,
           model_id: model_association&.model_id
         )
+
+        @_to_llm_cache_key = cache_key
+        @_to_llm_cache = result
+      end
+
+      # Clear the to_llm cache (useful if message content changes)
+      def clear_to_llm_cache!
+        @_to_llm_cache = nil
+        @_to_llm_cache_key = nil
       end
 
       private
@@ -47,15 +60,21 @@ module RubyLLM
         parent_tool_call&.tool_call_id
       end
 
-      def extract_content
+      def extract_content(skip_attachments: false)
         return RubyLLM::Content::Raw.new(content_raw) if has_attribute?(:content_raw) && content_raw.present?
 
         content_value = self[:content]
+        has_attachments = respond_to?(:attachments) && attachments.attached?
 
-        return content_value unless respond_to?(:attachments) && attachments.attached?
+        return content_value unless has_attachments
+
+        # Skip downloading attachments for messages beyond the image context distance
+        if skip_attachments
+          return content_value.present? ? "#{content_value}\n\n[IMAGE CONTEXT EXPIRED]" : '[IMAGE CONTEXT EXPIRED]'
+        end
 
         RubyLLM::Content.new(content_value).tap do |content_obj|
-          @_tempfiles = []
+          @_tempfiles ||= []
 
           attachments.each do |attachment|
             tempfile = download_attachment(attachment)

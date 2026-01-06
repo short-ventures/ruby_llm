@@ -76,6 +76,9 @@ module RubyLLM
       public
 
       def to_llm
+        # #region agent log
+        File.open('/Users/calshort/blox/.cursor/debug.log', 'a') { |f| f.puts({hypothesisId:'H1',location:'chat_methods.rb:to_llm',message:'to_llm called',data:{caller:caller(1,3).map{|c|c.split('/').last}.join(' <- '),msg_count:messages_association.count},timestamp:Time.now.to_i*1000}.to_json) }
+        # #endregion
         model_record = model_association
         @chat ||= (context || RubyLLM).chat(
           model: model_record.model_id,

@@ -48,16 +48,24 @@ module RubyLLM
       end
 
       def extract_content
-        return RubyLLM::Content::Raw.new(content_raw) if has_attribute?(:content_raw) && content_raw.present?
+        # #region agent log
+        has_raw = has_attribute?(:content_raw) && content_raw.present?
+        has_attachments = respond_to?(:attachments) && attachments.attached?
+        File.open('/Users/calshort/blox/.cursor/debug.log', 'a') { |f| f.puts({hypothesisId:'H2',location:'message_methods.rb:extract_content',message:'extract_content called',data:{msg_id:id,role:role,has_raw:has_raw,has_attachments:has_attachments,attachment_count:has_attachments ? attachments.count : 0},timestamp:Time.now.to_i*1000}.to_json) }
+        # #endregion
+        return RubyLLM::Content::Raw.new(content_raw) if has_raw
 
         content_value = self[:content]
 
-        return content_value unless respond_to?(:attachments) && attachments.attached?
+        return content_value unless has_attachments
 
         RubyLLM::Content.new(content_value).tap do |content_obj|
           @_tempfiles = []
 
           attachments.each do |attachment|
+            # #region agent log
+            File.open('/Users/calshort/blox/.cursor/debug.log', 'a') { |f| f.puts({hypothesisId:'H2',location:'message_methods.rb:download_attachment',message:'downloading attachment from S3',data:{msg_id:id,filename:attachment.filename.to_s,key:attachment.key},timestamp:Time.now.to_i*1000}.to_json) }
+            # #endregion
             tempfile = download_attachment(attachment)
             content_obj.add_attachment(tempfile, filename: attachment.filename.to_s)
           end

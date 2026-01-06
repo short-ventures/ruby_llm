@@ -76,9 +76,6 @@ module RubyLLM
       public
 
       def to_llm
-        # #region agent log
-        File.open('/Users/calshort/blox/.cursor/debug.log', 'a') { |f| f.puts({hypothesisId:'H1',location:'chat_methods.rb:to_llm',message:'to_llm called',data:{caller:caller(1,3).map{|c|c.split('/').last}.join(' <- '),msg_count:messages_association.count,cached_count:@_llm_messages_cache&.size||0},timestamp:Time.now.to_i*1000}.to_json) }
-        # #endregion
         model_record = model_association
         @chat ||= (context || RubyLLM).chat(
           model: model_record.model_id,
@@ -86,14 +83,8 @@ module RubyLLM
         )
         @chat.reset_messages!
 
-        # Cache LLM message representations to avoid re-downloading S3 attachments
-        # on every to_llm call (which happens 15+ times per request)
-        @_llm_messages_cache ||= {}
-
         messages_association.each do |msg|
-          # Use cached LLM message if available, otherwise convert and cache
-          llm_msg = @_llm_messages_cache[msg.id] ||= msg.to_llm
-          @chat.add_message(llm_msg)
+          @chat.add_message(msg.to_llm)
         end
 
         setup_persistence_callbacks

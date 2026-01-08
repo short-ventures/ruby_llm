@@ -10,10 +10,21 @@ module RubyLLM
         attr_reader :chat_class, :tool_call_class, :chat_foreign_key, :tool_call_foreign_key
       end
 
+      # Thread-local cache for to_llm results, keyed by [message_id, updated_at, skip_attachments]
+      # This survives across AR instance reloads within the same request/job
+      def self.to_llm_cache
+        Thread.current[:ruby_llm_message_cache] ||= {}
+      end
+
+      def self.clear_to_llm_cache!
+        Thread.current[:ruby_llm_message_cache] = {}
+      end
+
       def to_llm(skip_attachments: false)
-        # Return cached result if available and not stale
-        cache_key = [updated_at, skip_attachments]
-        return @_to_llm_cache if @_to_llm_cache && @_to_llm_cache_key == cache_key
+        # Use thread-local cache to survive AR instance reloads
+        cache = MessageMethods.to_llm_cache
+        cache_key = [id, updated_at, skip_attachments]
+        return cache[cache_key] if cache.key?(cache_key)
 
         cached = has_attribute?(:cached_tokens) ? self[:cached_tokens] : nil
         cache_creation = has_attribute?(:cache_creation_tokens) ? self[:cache_creation_tokens] : nil
@@ -30,14 +41,12 @@ module RubyLLM
           model_id: model_association&.model_id
         )
 
-        @_to_llm_cache_key = cache_key
-        @_to_llm_cache = result
+        cache[cache_key] = result
       end
 
       # Clear the to_llm cache (useful if message content changes)
       def clear_to_llm_cache!
-        @_to_llm_cache = nil
-        @_to_llm_cache_key = nil
+        MessageMethods.clear_to_llm_cache!
       end
 
       private

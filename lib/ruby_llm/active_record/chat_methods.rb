@@ -76,6 +76,9 @@ module RubyLLM
       public
 
       def to_llm(image_context_distance: nil)
+        # Store image_context_distance for reuse in subsequent calls
+        @_image_context_distance = image_context_distance if image_context_distance
+
         model_record = model_association
         @chat ||= (context || RubyLLM).chat(
           model: model_record.model_id,
@@ -85,12 +88,13 @@ module RubyLLM
 
         messages_list = messages_association.to_a
         total = messages_list.length
+        effective_distance = @_image_context_distance
 
         messages_list.each_with_index do |msg, idx|
           skip = false
-          if image_context_distance && msg.role.to_sym == :user
+          if effective_distance && msg.role.to_sym == :user
             distance_from_end = total - idx - 1
-            skip = distance_from_end > image_context_distance
+            skip = distance_from_end > effective_distance
           end
           @chat.add_message(msg.to_llm(skip_attachments: skip))
         end

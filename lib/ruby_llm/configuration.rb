@@ -42,6 +42,10 @@ module RubyLLM
                   :retry_backoff_factor,
                   :retry_interval_randomness,
                   :http_proxy,
+                  # Helicone configuration
+                  :helicone_api_key,
+                  :helicone_enabled,
+                  :helicone_base_url,
                   # Logging configuration
                   :logger,
                   :log_file,
@@ -55,6 +59,9 @@ module RubyLLM
       @retry_backoff_factor = 2
       @retry_interval_randomness = 0.5
       @http_proxy = nil
+
+      @helicone_enabled = false
+      @helicone_base_url = 'https://gateway.helicone.ai'
 
       @default_model = 'gpt-4.1-nano'
       @default_embedding_model = 'text-embedding-3-small'

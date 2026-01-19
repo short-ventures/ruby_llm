@@ -201,6 +201,28 @@ module RubyLLM
       end
     end
 
+    def effective_api_base
+      return api_base unless helicone_enabled?
+
+      # Route through Helicone gateway, preserving the path
+      uri = URI.parse(api_base)
+      "#{@config.helicone_base_url}#{uri.path}"
+    end
+
+    def effective_headers
+      base_headers = headers
+      return base_headers unless helicone_enabled?
+
+      base_headers.merge(
+        'Helicone-Auth' => "Bearer #{@config.helicone_api_key}",
+        'Helicone-Target-Url' => api_base
+      )
+    end
+
+    def helicone_enabled?
+      @config.helicone_enabled && @config.helicone_api_key
+    end
+
     private
 
     def build_audio_file_part(file_path)

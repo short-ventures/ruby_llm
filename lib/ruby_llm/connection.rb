@@ -24,7 +24,7 @@ module RubyLLM
       @config = config
 
       ensure_configured!
-      @connection ||= Faraday.new(provider.api_base) do |faraday|
+      @connection ||= Faraday.new(provider.effective_api_base) do |faraday|
         setup_timeout(faraday)
         setup_logging(faraday)
         setup_retry(faraday)
@@ -35,14 +35,14 @@ module RubyLLM
 
     def post(url, payload, &)
       @connection.post url, payload do |req|
-        req.headers.merge! @provider.headers if @provider.respond_to?(:headers)
+        req.headers.merge! @provider.effective_headers if @provider.respond_to?(:effective_headers)
         yield req if block_given?
       end
     end
 
     def get(url, &)
       @connection.get url do |req|
-        req.headers.merge! @provider.headers if @provider.respond_to?(:headers)
+        req.headers.merge! @provider.effective_headers if @provider.respond_to?(:effective_headers)
         yield req if block_given?
       end
     end

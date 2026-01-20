@@ -51,6 +51,13 @@ module RubyLLM
 
           function_name ||= msg.tool_call_id
 
+          # Raise a descriptive error if we can't determine the function name
+          # Gemini requires function_response.name to be non-empty
+          if function_name.nil? || (function_name.respond_to?(:empty?) && function_name.empty?)
+            raise RubyLLM::Error, "Cannot format tool result: function name is empty. " \
+              "Tool result message may be orphaned (missing parent_tool_call association)."
+          end
+
           response_part = {
             functionResponse: {
               name: function_name,

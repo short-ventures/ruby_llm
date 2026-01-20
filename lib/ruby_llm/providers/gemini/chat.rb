@@ -255,6 +255,31 @@ module RubyLLM
             while tool_message?(@messages[index])
               tool_message = @messages[index]
               tool_metadata = @tool_call_names.delete(tool_message.tool_call_id)
+
+              # Handle orphaned tool result messages that have no tool_call_id
+              # This can happen if a tool result message was persisted without proper
+              # parent_tool_call association. Try to recover by matching to remaining tool calls.
+              if tool_metadata.nil? && tool_message.tool_call_id.nil?
+                # Try to match with remaining unmatched tool calls by position
+                remaining_tool_calls = @tool_call_names.values
+                if remaining_tool_calls.any?
+                  # Use the first remaining tool call as a best-effort match
+                  matched_key = @tool_call_names.keys.first
+                  tool_metadata = @tool_call_names.delete(matched_key)
+                  RubyLLM.logger.warn(
+                    "RubyLLM: Recovered orphaned tool result by matching to tool call '#{tool_metadata[:name]}'. " \
+                    "This message was missing parent_tool_call association."
+                  )
+                else
+                  RubyLLM.logger.error(
+                    "RubyLLM: Cannot recover orphaned tool result - no unmatched tool calls available. " \
+                    "Skipping this message."
+                  )
+                  index += 1
+                  next
+                end
+              end
+
               parts.concat(format_tool_result(tool_message, tool_metadata))
               index += 1
             end

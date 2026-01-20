@@ -320,7 +320,9 @@ module RubyLLM
       end
 
       def find_tool_call_id(tool_call_id)
-        messages = messages_association
+        # Reload to ensure we see newly created tool calls from the assistant message
+        # that was just persisted in the same request
+        messages = messages_association.reload
         message_class = messages.klass
         tool_calls_assoc = message_class.tool_calls_association_name
         tool_call_table_name = message_class.reflect_on_association(tool_calls_assoc).table_name

@@ -23,6 +23,7 @@ module RubyLLM
       @params = {}
       @headers = {}
       @schema = nil
+      @thinking = nil
       @thinking_config = nil
       @on = {
         new_message: nil,
@@ -66,6 +67,13 @@ module RubyLLM
 
     def with_temperature(temperature)
       @temperature = temperature
+      self
+    end
+
+    def with_thinking(effort: nil, budget: nil)
+      raise ArgumentError, 'with_thinking requires :effort or :budget' if effort.nil? && budget.nil?
+
+      @thinking = Thinking::Config.new(effort: effort, budget: budget)
       self
     end
 
@@ -162,6 +170,7 @@ module RubyLLM
       params: effective_params,
         headers: @headers,
         schema: @schema,
+        thinking: @thinking,
         &wrap_streaming_block(&)
       )
 
@@ -208,15 +217,9 @@ module RubyLLM
     def wrap_streaming_block(&block)
       return nil unless block_given?
 
-      first_chunk_received = false
+      @on[:new_message]&.call
 
       proc do |chunk|
-        # Create message on first content chunk
-        unless first_chunk_received
-          first_chunk_received = true
-          @on[:new_message]&.call
-        end
-
         block.call chunk
       end
     end

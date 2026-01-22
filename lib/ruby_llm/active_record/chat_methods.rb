@@ -144,6 +144,11 @@ module RubyLLM
         self
       end
 
+      def with_thinking(...)
+        to_llm.with_thinking(...)
+        self
+      end
+
       def with_thinking_config(...)
         to_llm.with_thinking_config(...)
         self
@@ -292,6 +297,9 @@ module RubyLLM
           if @message.has_attribute?(:cache_creation_tokens)
             attrs[:cache_creation_tokens] = message.cache_creation_tokens
           end
+          attrs[:thinking_text] = message.thinking&.text if @message.has_attribute?(:thinking_text)
+          attrs[:thinking_signature] = message.thinking&.signature if @message.has_attribute?(:thinking_signature)
+          attrs[:thinking_tokens] = message.thinking_tokens if @message.has_attribute?(:thinking_tokens)
 
           # Add model association dynamically
           attrs[self.class.model_association_name] = model_association
@@ -312,8 +320,12 @@ module RubyLLM
       # rubocop:enable Metrics/PerceivedComplexity
 
       def persist_tool_calls(tool_calls)
+        tool_call_klass = @message.tool_calls_association.klass
+        supports_thought_signature = tool_call_klass.column_names.include?('thought_signature')
+
         tool_calls.each_value do |tool_call|
           attributes = tool_call.to_h
+          attributes.delete(:thought_signature) unless supports_thought_signature
           attributes[:tool_call_id] = attributes.delete(:id)
           @message.tool_calls_association.create!(**attributes)
         end

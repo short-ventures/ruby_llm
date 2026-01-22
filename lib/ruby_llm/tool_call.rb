@@ -6,7 +6,8 @@ module RubyLLM
   #   for preserving model state across multi-turn function calling conversations.
   #   See: https://ai.google.dev/gemini-api/docs/thought-signatures
   class ToolCall
-    attr_reader :id, :name, :arguments, :thought_signature
+    attr_reader :id, :name, :arguments
+    attr_accessor :thought_signature
 
     def initialize(id:, name:, arguments: {}, thought_signature: nil)
       @id = id
@@ -16,13 +17,12 @@ module RubyLLM
     end
 
     def to_h
-      hash = {
+      {
         id: @id,
         name: @name,
-        arguments: @arguments
-      }
-      hash[:thought_signature] = @thought_signature if @thought_signature
-      hash
+        arguments: @arguments,
+        thought_signature: @thought_signature
+      }.compact
     end
   end
 end

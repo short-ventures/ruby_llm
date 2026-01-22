@@ -13,7 +13,7 @@ module RubyLLM
           }]
         end
 
-        def format_tool_call(msg)
+        def format_tool_call(msg) # rubocop:disable Metrics/PerceivedComplexity
           parts = []
 
           if msg.content && !(msg.content.respond_to?(:empty?) && msg.content.empty?)
@@ -21,7 +21,9 @@ module RubyLLM
             parts.concat(formatted_content.is_a?(Array) ? formatted_content : [formatted_content])
           end
 
-          first_call = true
+          fallback_signature = msg.thinking&.signature
+          used_fallback = false
+
           msg.tool_calls.each_value do |tool_call|
             part = {
               functionCall: {
@@ -29,11 +31,13 @@ module RubyLLM
                 args: tool_call.arguments
               }
             }
-            # Per Gemini docs: only the first functionCall has the thoughtSignature
-            if first_call && tool_call.thought_signature
-              part[:thoughtSignature] = tool_call.thought_signature
-              first_call = false
+
+            signature = tool_call.thought_signature
+            if signature.nil? && fallback_signature && !used_fallback
+              signature = fallback_signature
+              used_fallback = true
             end
+            part[:thoughtSignature] = signature if signature
             parts << part
           end
 
@@ -87,12 +91,13 @@ module RubyLLM
             next unless function_data
 
             id = SecureRandom.uuid
+            thought_signature = part['thoughtSignature'] || part['thought_signature']
 
             result[id] = ToolCall.new(
               id:,
               name: function_data['name'],
               arguments: function_data['args'] || {},
-              thought_signature: part['thoughtSignature']
+              thought_signature: thought_signature
             )
           end
 

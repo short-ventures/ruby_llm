@@ -24,7 +24,6 @@ module RubyLLM
       @headers = {}
       @schema = nil
       @thinking = nil
-      @thinking_config = nil
       @on = {
         new_message: nil,
         end_message: nil,
@@ -104,26 +103,6 @@ module RubyLLM
                   schema_instance
                 end
 
-      self
-    end
-
-    def with_thinking_config(level: nil, include_thoughts: nil, budget_tokens: nil)
-      config = {}
-
-      if level
-        normalized_level = level.to_s.upcase
-        config[:thinkingLevel] = normalized_level
-      end
-
-      unless include_thoughts.nil?
-        config[:includeThoughts] = !!include_thoughts
-      end
-
-      unless budget_tokens.nil?
-        config[:budgetTokens] = budget_tokens
-      end
-
-      @thinking_config = config if config.any?
       self
     end
 
@@ -250,22 +229,7 @@ module RubyLLM
     end
 
     def effective_params
-      params = RubyLLM::Utils.deep_dup(@params)
-
-      # Avoid clobbering an explicit caller-provided thinkingConfig
-      has_thinking_config =
-        params.key?(:thinkingConfig) || params.key?('thinkingConfig') ||
-        params.dig(:generationConfig, :thinkingConfig) ||
-        params.dig('generationConfig', 'thinkingConfig')
-
-      unless has_thinking_config
-        if @thinking_config
-          params[:generationConfig] ||= {}
-          params[:generationConfig][:thinkingConfig] ||= @thinking_config
-        end
-      end
-
-      params
+      RubyLLM::Utils.deep_dup(@params)
     end
 
     def build_content(message, attachments)

@@ -3,7 +3,7 @@
 module RubyLLM
   # Assembles streaming responses from LLMs into complete messages.
   class StreamAccumulator
-    attr_reader :content, :model_id, :tool_calls
+    attr_reader :content, :model_id, :tool_calls, :time_to_first_token, :streaming_duration
 
     def initialize
       @content = +''
@@ -19,10 +19,22 @@ module RubyLLM
       @inside_think_tag = false
       @pending_think_tag = +''
       @latest_tool_call_id = nil
+      # Timing instrumentation
+      @stream_start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      @first_chunk_time = nil
+      @time_to_first_token = nil
+      @streaming_duration = nil
     end
 
     def add(chunk)
       RubyLLM.logger.debug chunk.inspect if RubyLLM.config.log_stream_debug
+
+      # Record time-to-first-token on first chunk with content
+      if @first_chunk_time.nil? && (chunk.content.present? || chunk.tool_call?)
+        @first_chunk_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        @time_to_first_token = ((@first_chunk_time - @stream_start_time) * 1000).round(1)
+      end
+
       @model_id ||= chunk.model_id
 
       handle_chunk_content(chunk)
@@ -32,6 +44,10 @@ module RubyLLM
     end
 
     def to_message(response)
+      # Calculate total streaming duration
+      stream_end_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      @streaming_duration = ((stream_end_time - @stream_start_time) * 1000).round(1)
+
       Message.new(
         role: :assistant,
         content: content.empty? ? nil : content,
@@ -48,7 +64,9 @@ module RubyLLM
         ),
         model_id: model_id,
         tool_calls: tool_calls_from_stream,
-        raw: response
+        raw: response,
+        time_to_first_token: @time_to_first_token,
+        streaming_duration: @streaming_duration
       )
     end
 

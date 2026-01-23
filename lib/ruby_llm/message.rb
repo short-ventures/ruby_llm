@@ -5,7 +5,8 @@ module RubyLLM
   class Message
     ROLES = %i[system user assistant tool].freeze
 
-    attr_reader :role, :model_id, :tool_calls, :tool_call_id, :raw, :thinking, :tokens
+    attr_reader :role, :model_id, :tool_calls, :tool_call_id, :raw, :thinking, :tokens,
+                :time_to_first_token, :streaming_duration
     attr_writer :content
 
     def initialize(options = {})
@@ -24,6 +25,9 @@ module RubyLLM
       )
       @raw = options[:raw]
       @thinking = options[:thinking]
+      # Streaming timing instrumentation (milliseconds)
+      @time_to_first_token = options[:time_to_first_token]
+      @streaming_duration = options[:streaming_duration]
 
       ensure_valid_role
     end

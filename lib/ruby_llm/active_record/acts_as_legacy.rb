@@ -131,8 +131,8 @@ module RubyLLM
         self
       end
 
-      def with_thinking_config(...)
-        to_llm.with_thinking_config(...)
+      def with_thinking(...)
+        to_llm.with_thinking(...)
         self
       end
 

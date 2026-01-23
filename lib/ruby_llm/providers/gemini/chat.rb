@@ -40,7 +40,8 @@ module RubyLLM
         end
 
         def resolve_effort_level(thinking)
-          thinking.respond_to?(:effort) ? thinking.effort : thinking
+          effort = thinking.respond_to?(:effort) ? thinking.effort : thinking
+          effort.is_a?(String) ? effort.upcase : effort
         end
 
         def resolve_budget(thinking)

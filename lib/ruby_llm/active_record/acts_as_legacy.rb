@@ -185,6 +185,11 @@ module RubyLLM
         self
       end
 
+      def on_tool_call_start(...)
+        to_llm.on_tool_call_start(...)
+        self
+      end
+
       def on_tool_call(...)
         to_llm.on_tool_call(...)
         self

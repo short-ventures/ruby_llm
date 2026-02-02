@@ -58,8 +58,8 @@ module RubyLLM
           # Raise a descriptive error if we can't determine the function name
           # Gemini requires function_response.name to be non-empty
           if function_name.nil? || (function_name.respond_to?(:empty?) && function_name.empty?)
-            raise RubyLLM::Error, "Cannot format tool result: function name is empty. " \
-              "Tool result message may be orphaned (missing parent_tool_call association)."
+            raise RubyLLM::Error, 'Cannot format tool result: function name is empty. ' \
+                                  'Tool result message may be orphaned (missing parent_tool_call association).'
           end
 
           response_part = {
@@ -77,7 +77,7 @@ module RubyLLM
           [response_part]
         end
 
-        def extract_tool_calls(data) # rubocop:disable Metrics/PerceivedComplexity
+        def extract_tool_calls(data) # rubocop:disable Metrics/PerceivedComplexity,Metrics/AbcSize
           return nil unless data
 
           candidate = data.is_a?(Hash) ? data.dig('candidates', 0) : nil
@@ -90,15 +90,93 @@ module RubyLLM
             function_data = part['functionCall']
             next unless function_data
 
-            id = SecureRandom.uuid
-            thought_signature = part['thoughtSignature'] || part['thought_signature']
+            # Log raw function_data for debugging
+            RubyLLM.logger.debug "[ExtractToolCalls] Raw functionCall data: #{function_data.to_json}"
 
-            result[id] = ToolCall.new(
-              id:,
-              name: function_data['name'],
-              arguments: function_data['args'] || {},
-              thought_signature: thought_signature
-            )
+            thought_signature = part['thoughtSignature'] || part['thought_signature'] ||
+                                function_data['thoughtSignature'] || function_data['thought_signature']
+
+            # Check for partialArgs (streaming function arguments from Vertex AI)
+            # partialArgs is an array of {jsonPath, value} objects, NOT a JSON string
+            partial_args = function_data['partialArgs'] || function_data['partial_args']
+            will_continue = function_data['willContinue'] || function_data['will_continue']
+
+            tool_name = function_data['name']
+
+            # Log detection of partial vs complete args
+            RubyLLM.logger.debug "[ExtractToolCalls] name=#{tool_name}, partialArgs?=#{!partial_args.nil?}, " \
+                                 "willContinue=#{will_continue}, args?=#{!function_data['args'].nil?}"
+
+            if partial_args.is_a?(Array)
+              # Streaming partial arguments from Vertex AI
+              # Note: The first chunk has the name, subsequent chunks have partialArgs but NO name
+              # We use nil id to signal this is a continuation for the latest tool call
+              if tool_name.nil? || tool_name.to_s.empty?
+                # Continuation chunk - no name, just partialArgs
+                result[nil] = ToolCall.new(
+                  id: nil,
+                  name: nil,
+                  arguments: {
+                    _partial: true,
+                    _will_continue: will_continue,
+                    _partial_args: partial_args
+                  },
+                  thought_signature: thought_signature
+                )
+              else
+                # First chunk with name and partialArgs
+                id = SecureRandom.uuid
+                result[id] = ToolCall.new(
+                  id: id,
+                  name: tool_name,
+                  arguments: {
+                    _partial: true,
+                    _will_continue: will_continue,
+                    _partial_args: partial_args
+                  },
+                  thought_signature: thought_signature
+                )
+              end
+            elsif partial_args
+              # Legacy string format (if any) - continuation chunk
+              partial_string = partial_args.is_a?(String) ? partial_args : JSON.generate(partial_args)
+              result[nil] = ToolCall.new(
+                id: nil,
+                name: nil,
+                arguments: partial_string,
+                thought_signature: thought_signature
+              )
+            else
+              # Complete function call OR start of streaming (name with willContinue=true)
+              next if tool_name.nil? || tool_name.to_s.empty?
+
+              id = SecureRandom.uuid
+              args = function_data['args'] || {}
+
+              # Check if this is the START of a streaming function call
+              # (has name and willContinue=true but no args yet)
+              if will_continue && args.empty?
+                # Start of streaming - create entry that will receive partialArgs
+                result[id] = ToolCall.new(
+                  id: id,
+                  name: tool_name,
+                  arguments: {
+                    _partial: true,
+                    _will_continue: will_continue,
+                    _partial_args: []
+                  },
+                  thought_signature: thought_signature
+                )
+              else
+                # Complete function call (non-streaming or final with args)
+                result[id] = ToolCall.new(
+                  id: id,
+                  name: tool_name,
+                  arguments: args,
+                  thought_signature: thought_signature
+                )
+              end
+            end
           end
 
           tool_calls.empty? ? nil : tool_calls

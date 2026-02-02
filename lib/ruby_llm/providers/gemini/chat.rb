@@ -14,7 +14,7 @@ module RubyLLM
           "models/#{@model}:generateContent"
         end
 
-        def render_payload(messages, tools:, temperature:, model:, stream: false, schema: nil, thinking: nil) # rubocop:disable Metrics/ParameterLists,Lint/UnusedMethodArgument
+        def render_payload(messages, tools:, temperature:, model:, stream: false, schema: nil, thinking: nil) # rubocop:disable Metrics/ParameterLists
           @model = model.id
           payload = {
             contents: format_messages(messages),
@@ -26,8 +26,34 @@ module RubyLLM
           payload[:generationConfig].merge!(structured_output_config(schema, model)) if schema
           payload[:generationConfig][:thinkingConfig] = build_thinking_config(model, thinking) if thinking&.enabled?
 
-          payload[:tools] = format_tools(tools) if tools.any?
+          if tools.any?
+            payload[:tools] = format_tools(tools)
+
+            # Enable streaming function call arguments for Gemini 3+ on Vertex AI
+            if stream && supports_streaming_function_args?(model)
+              payload[:toolConfig] = {
+                functionCallingConfig: {
+                  streamFunctionCallArguments: true
+                }
+              }
+            end
+          end
+
           payload
+        end
+
+        def supports_streaming_function_args?(model)
+          # Gemini 2.5+ on Vertex AI support streaming function args
+          # Check if we're using Vertex AI by checking for vertexai_project_id config
+          has_vertexai_config = @config&.respond_to?(:vertexai_project_id) && @config&.vertexai_project_id
+          version = gemini_version(model)
+          supported_version = version && version >= Gem::Version.new('2.5')
+
+          RubyLLM.logger.debug "[StreamingFunctionArgs] Checking support: provider=#{self.class.name}, " \
+                               "hasVertexConfig=#{has_vertexai_config}, version=#{version}, supported=#{supported_version}"
+
+          return false unless has_vertexai_config
+          supported_version
         end
 
         def build_thinking_config(_model, thinking)
@@ -199,6 +225,7 @@ module RubyLLM
         def extract_thought_parts(parts)
           Array(parts).filter_map do |part|
             next unless part.is_a?(Hash) && part['thought']
+
             part['text']
           end
         end
@@ -335,12 +362,12 @@ module RubyLLM
                   tool_metadata = @tool_call_names.delete(matched_key)
                   RubyLLM.logger.warn(
                     "RubyLLM: Recovered orphaned tool result by matching to tool call '#{tool_metadata[:name]}'. " \
-                    "This message was missing parent_tool_call association."
+                    'This message was missing parent_tool_call association.'
                   )
                 else
                   RubyLLM.logger.error(
-                    "RubyLLM: Cannot recover orphaned tool result - no unmatched tool calls available. " \
-                    "Skipping this message."
+                    'RubyLLM: Cannot recover orphaned tool result - no unmatched tool calls available. ' \
+                    'Skipping this message.'
                   )
                   index += 1
                   next

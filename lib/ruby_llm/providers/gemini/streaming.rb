@@ -12,6 +12,39 @@ module RubyLLM
         def build_chunk(data)
           parts = data.dig('candidates', 0, 'content', 'parts') || []
 
+          # Check if any parts contain functionCall data
+          function_call_parts = parts.select { |p| p['functionCall'] }
+          if function_call_parts.any?
+            # Log detailed function call data including partialArgs detection
+            function_call_parts.each do |part|
+              fc = part['functionCall']
+              has_partial_args = fc.key?('partialArgs') || fc.key?('partial_args')
+              has_args = fc.key?('args')
+              will_continue = fc['willContinue'] || fc['will_continue']
+
+              RubyLLM.logger.debug "[StreamingToolCall] functionCall detected: " \
+                "name=#{fc['name']}, " \
+                "hasPartialArgs=#{has_partial_args}, " \
+                "hasArgs=#{has_args}, " \
+                "willContinue=#{will_continue}, " \
+                "keys=#{fc.keys.join(',')}"
+
+              if has_partial_args
+                partial = fc['partialArgs'] || fc['partial_args']
+                RubyLLM.logger.debug "[StreamingToolCall] partialArgs content: #{partial.inspect}"
+              end
+            end
+          end
+
+          tool_calls = extract_tool_calls(data)
+
+          if tool_calls&.any?
+            tool_calls.each do |id, tc|
+              is_partial = tc.arguments.is_a?(Hash) && tc.arguments[:_partial]
+              RubyLLM.logger.debug "[StreamingToolCall] Extracted: id=#{id}, name=#{tc.name}, isPartial=#{is_partial}"
+            end
+          end
+
           Chunk.new(
             role: :assistant,
             model_id: extract_model_id(data),
@@ -23,7 +56,7 @@ module RubyLLM
             input_tokens: extract_input_tokens(data),
             output_tokens: extract_output_tokens(data),
             thinking_tokens: data.dig('usageMetadata', 'thoughtsTokenCount'),
-            tool_calls: extract_tool_calls(data)
+            tool_calls: tool_calls
           )
         end
 

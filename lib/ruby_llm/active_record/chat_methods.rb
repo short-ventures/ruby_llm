@@ -46,9 +46,20 @@ module RubyLLM
         @model_string ||= config.default_model unless model_association
         return unless @model_string
 
+        # If no provider is specified and this looks like a Gemini model,
+        # prefer Vertex AI over Gemini API when Vertex AI is configured.
+        # This ensures streaming function arguments feature is available.
+        resolved_provider = @provider_string
+        if resolved_provider.nil? && config.respond_to?(:vertexai_project_id) && config.vertexai_project_id
+          if @model_string.to_s.include?('gemini')
+            resolved_provider = 'vertexai'
+            RubyLLM.logger.info "[ChatMethods] Preferring Vertex AI for Gemini model: #{@model_string}"
+          end
+        end
+
         model_info, _provider = Models.resolve(
           @model_string,
-          provider: @provider_string,
+          provider: resolved_provider,
           assume_exists: assume_model_exists || false,
           config: config
         )
@@ -80,9 +91,19 @@ module RubyLLM
         @_image_context_distance = image_context_distance if image_context_distance
 
         model_record = model_association
+        config = context&.config || RubyLLM.config
+
+        # For Gemini models, prefer Vertex AI over Gemini API when Vertex AI is configured.
+        # This ensures streaming function arguments feature is available.
+        effective_provider = model_record.provider.to_sym
+        if effective_provider == :gemini && config.respond_to?(:vertexai_project_id) && config.vertexai_project_id
+          effective_provider = :vertexai
+        end
+
+        RubyLLM.logger.info "[ChatMethods] Creating chat with model=#{model_record.model_id}, provider=#{effective_provider} (stored: #{model_record.provider})"
         @chat ||= (context || RubyLLM).chat(
           model: model_record.model_id,
-          provider: model_record.provider.to_sym
+          provider: effective_provider
         )
         @chat.reset_messages!
 
@@ -193,6 +214,11 @@ module RubyLLM
         self
       end
 
+      def on_tool_call_start(...)
+        to_llm.on_tool_call_start(...)
+        self
+      end
+
       def on_tool_call(...)
         to_llm.on_tool_call(...)
         self
@@ -227,6 +253,12 @@ module RubyLLM
       def complete(...)
         to_llm.complete(...)
       rescue RubyLLM::Error => e
+        cleanup_failed_messages if @message&.persisted? && @message.content.blank?
+        cleanup_orphaned_tool_results
+        raise e
+      rescue StandardError => e
+        # Handle all other exceptions (including StopProcessingError from calling code)
+        # Clean up empty assistant messages that were created but never populated
         cleanup_failed_messages if @message&.persisted? && @message.content.blank?
         cleanup_orphaned_tool_results
         raise e

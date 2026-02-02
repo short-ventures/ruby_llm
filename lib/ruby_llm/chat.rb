@@ -214,6 +214,7 @@ module RubyLLM
 
       response.tool_calls.each_value do |tool_call|
         @on[:new_message]&.call
+        @on[:tool_call_start]&.call(tool_call)
         @on[:tool_call]&.call(tool_call)
         result = execute_tool tool_call
         @on[:tool_result]&.call(result)

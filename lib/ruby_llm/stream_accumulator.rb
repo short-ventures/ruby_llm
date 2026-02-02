@@ -77,10 +77,10 @@ module RubyLLM
       # Filter out any tool calls without valid names before transforming
       valid_tool_calls = tool_calls.reject { |_id, tc| tc.name.nil? || tc.name.to_s.empty? }
 
-      RubyLLM.logger.info "[ToolCallsFromStream] Processing #{valid_tool_calls.size} tool calls"
+      RubyLLM.logger.debug "[ToolCallsFromStream] Processing #{valid_tool_calls.size} tool calls"
 
       valid_tool_calls.transform_values do |tc|
-        RubyLLM.logger.info "[ToolCallsFromStream] Tool: #{tc.name}, raw args type: #{tc.arguments.class}, raw args: #{tc.arguments.inspect}"
+        RubyLLM.logger.debug "[ToolCallsFromStream] Tool: #{tc.name}, raw args type: #{tc.arguments.class}, raw args: #{tc.arguments.inspect}"
 
         arguments = case tc.arguments
                     when String
@@ -92,7 +92,7 @@ module RubyLLM
                       {}
                     end
 
-        RubyLLM.logger.info "[ToolCallsFromStream] Tool: #{tc.name}, final args: #{arguments.inspect}"
+        RubyLLM.logger.debug "[ToolCallsFromStream] Tool: #{tc.name}, final args: #{arguments.inspect}"
 
         sig = tc.thought_signature || (first ? @thought_signature : nil)
         first = false if sig
@@ -151,7 +151,7 @@ module RubyLLM
             # Check if this is a partial args continuation (Vertex AI streaming)
             if tool_call.arguments.is_a?(Hash) && tool_call.arguments[:_partial]
               partial_args = tool_call.arguments[:_partial_args] || []
-              RubyLLM.logger.info "[Continuation] Merging partialArgs into existing tool call: #{existing.name}"
+              RubyLLM.logger.debug "[Continuation] Merging partialArgs into existing tool call: #{existing.name}"
               merge_partial_args(existing, partial_args)
             else
               # Legacy string format continuation
@@ -173,8 +173,8 @@ module RubyLLM
       partial_args = tool_call.arguments[:_partial_args] || []
       will_continue = tool_call.arguments[:_will_continue]
 
-      RubyLLM.logger.info "[PartialToolCall] Processing: name=#{tool_call.name}, id=#{tool_call.id}, partialArgsCount=#{partial_args.size}, willContinue=#{will_continue}"
-      RubyLLM.logger.debug "[PartialToolCall] Raw partialArgs: #{partial_args.to_json}"
+      RubyLLM.logger.debug "[PartialToolCall] Processing: name=#{tool_call.name}, id=#{tool_call.id}, partialArgsCount=#{partial_args.size}, willContinue=#{will_continue}"
+      RubyLLM.logger.debug "[PartialToolCall] Raw partialArgs: #{partial_args.inspect}"
 
       # Check if we already have an entry for this specific tool call ID
       # (handles case where same ID comes in multiple chunks)
@@ -182,16 +182,16 @@ module RubyLLM
 
       if existing
         # Accumulate partial arguments into existing entry for same ID
-        RubyLLM.logger.info "[PartialToolCall] Merging into existing entry (same ID), current args: #{existing.arguments.inspect}"
+        RubyLLM.logger.debug "[PartialToolCall] Merging into existing entry (same ID), current args: #{existing.arguments.inspect}"
         merge_partial_args(existing, partial_args)
-        RubyLLM.logger.info "[PartialToolCall] After merge, args: #{existing.arguments.inspect}"
+        RubyLLM.logger.debug "[PartialToolCall] After merge, args: #{existing.arguments.inspect}"
         @latest_tool_call_id = tool_call.id
       else
         # New tool call - create entry with partial args
         # Use tool_call_id as key to support multiple calls to the same tool
         initial_args = {}
         merge_partial_args_into(initial_args, partial_args)
-        RubyLLM.logger.info "[PartialToolCall] Created new entry for id=#{tool_call_id}, initial args: #{initial_args.inspect}"
+        RubyLLM.logger.debug "[PartialToolCall] Created new entry for id=#{tool_call_id}, initial args: #{initial_args.inspect}"
 
         @thought_signature ||= tool_call.thought_signature
         @tool_calls[tool_call.id] = ToolCall.new(
@@ -231,12 +231,18 @@ module RubyLLM
     end
 
     def extract_partial_value(partial)
-      value = if partial.key?('numberValue') || partial.key?(:numberValue)
-                partial['numberValue'] || partial[:numberValue]
-              elsif partial.key?('stringValue') || partial.key?(:stringValue)
-                partial['stringValue'] || partial[:stringValue]
-              elsif partial.key?('boolValue') || partial.key?(:boolValue)
-                partial['boolValue'] || partial[:boolValue]
+      value = if partial.key?('numberValue')
+                partial['numberValue']
+              elsif partial.key?(:numberValue)
+                partial[:numberValue]
+              elsif partial.key?('stringValue')
+                partial['stringValue']
+              elsif partial.key?(:stringValue)
+                partial[:stringValue]
+              elsif partial.key?('boolValue')
+                partial['boolValue']
+              elsif partial.key?(:boolValue)
+                partial[:boolValue]
               elsif partial.key?('nullValue') || partial.key?(:nullValue)
                 nil
               else

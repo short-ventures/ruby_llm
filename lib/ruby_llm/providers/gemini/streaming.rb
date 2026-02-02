@@ -22,7 +22,7 @@ module RubyLLM
               has_args = fc.key?('args')
               will_continue = fc['willContinue'] || fc['will_continue']
 
-              RubyLLM.logger.info "[StreamingToolCall] functionCall detected: " \
+              RubyLLM.logger.debug "[StreamingToolCall] functionCall detected: " \
                 "name=#{fc['name']}, " \
                 "hasPartialArgs=#{has_partial_args}, " \
                 "hasArgs=#{has_args}, " \
@@ -31,7 +31,7 @@ module RubyLLM
 
               if has_partial_args
                 partial = fc['partialArgs'] || fc['partial_args']
-                RubyLLM.logger.info "[StreamingToolCall] partialArgs content: #{partial.to_json}"
+                RubyLLM.logger.debug "[StreamingToolCall] partialArgs content: #{partial.inspect}"
               end
             end
           end
@@ -41,7 +41,7 @@ module RubyLLM
           if tool_calls&.any?
             tool_calls.each do |id, tc|
               is_partial = tc.arguments.is_a?(Hash) && tc.arguments[:_partial]
-              RubyLLM.logger.info "[StreamingToolCall] Extracted: id=#{id}, name=#{tc.name}, isPartial=#{is_partial}"
+              RubyLLM.logger.debug "[StreamingToolCall] Extracted: id=#{id}, name=#{tc.name}, isPartial=#{is_partial}"
             end
           end
 

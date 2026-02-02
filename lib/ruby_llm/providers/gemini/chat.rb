@@ -45,12 +45,12 @@ module RubyLLM
         def supports_streaming_function_args?(model)
           # Gemini 2.5+ on Vertex AI support streaming function args
           # Check if we're using Vertex AI by checking for vertexai_project_id config
-          has_vertexai_config = @config.respond_to?(:vertexai_project_id) && @config.vertexai_project_id
+          has_vertexai_config = @config&.respond_to?(:vertexai_project_id) && @config&.vertexai_project_id
           version = gemini_version(model)
           supported_version = version && version >= Gem::Version.new('2.5')
 
-          RubyLLM.logger.info "[StreamingFunctionArgs] Checking support: provider=#{self.class.name}, " \
-                              "hasVertexConfig=#{has_vertexai_config}, version=#{version}, supported=#{supported_version}"
+          RubyLLM.logger.debug "[StreamingFunctionArgs] Checking support: provider=#{self.class.name}, " \
+                               "hasVertexConfig=#{has_vertexai_config}, version=#{version}, supported=#{supported_version}"
 
           return false unless has_vertexai_config
           supported_version

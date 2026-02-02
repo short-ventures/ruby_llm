@@ -11,11 +11,11 @@ module RubyLLM
       # Log provider and streaming URL for debugging
       provider_name = self.class.name
       streaming_url = stream_url
-      RubyLLM.logger.info "[StreamingDebug] Provider: #{provider_name}, URL: #{streaming_url}"
+      RubyLLM.logger.debug "[StreamingDebug] Provider: #{provider_name}, URL: #{streaming_url}"
 
       # Log if toolConfig with streamFunctionCallArguments is present
       if payload[:toolConfig]&.dig(:functionCallingConfig, :streamFunctionCallArguments)
-        RubyLLM.logger.info "[StreamingDebug] streamFunctionCallArguments enabled in request"
+        RubyLLM.logger.debug "[StreamingDebug] streamFunctionCallArguments enabled in request"
       end
 
       response = connection.post streaming_url, payload do |req|

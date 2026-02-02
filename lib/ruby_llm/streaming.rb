@@ -8,7 +8,17 @@ module RubyLLM
     def stream_response(connection, payload, additional_headers = {}, &block)
       accumulator = StreamAccumulator.new
 
-      response = connection.post stream_url, payload do |req|
+      # Log provider and streaming URL for debugging
+      provider_name = self.class.name
+      streaming_url = stream_url
+      RubyLLM.logger.info "[StreamingDebug] Provider: #{provider_name}, URL: #{streaming_url}"
+
+      # Log if toolConfig with streamFunctionCallArguments is present
+      if payload[:toolConfig]&.dig(:functionCallingConfig, :streamFunctionCallArguments)
+        RubyLLM.logger.info "[StreamingDebug] streamFunctionCallArguments enabled in request"
+      end
+
+      response = connection.post streaming_url, payload do |req|
         req.headers = additional_headers.merge(req.headers) unless additional_headers.empty?
         if faraday_1?
           req.options[:on_data] = handle_stream do |chunk|

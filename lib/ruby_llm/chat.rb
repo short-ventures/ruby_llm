@@ -27,6 +27,7 @@ module RubyLLM
       @on = {
         new_message: nil,
         end_message: nil,
+        tool_call_start: nil,
         tool_call: nil,
         tool_result: nil
       }
@@ -123,6 +124,11 @@ module RubyLLM
 
     def on_end_message(&block)
       @on[:end_message] = block
+      self
+    end
+
+    def on_tool_call_start(&block)
+      @on[:tool_call_start] = block
       self
     end
 

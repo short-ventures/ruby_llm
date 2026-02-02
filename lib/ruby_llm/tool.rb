@@ -5,13 +5,14 @@ require 'ruby_llm/schema'
 module RubyLLM
   # Parameter definition for Tool methods.
   class Parameter
-    attr_reader :name, :type, :description, :required
+    attr_reader :name, :type, :description, :required, :enum
 
-    def initialize(name, type: 'string', desc: nil, required: true)
+    def initialize(name, type: 'string', desc: nil, required: true, enum: nil)
       @name = name
       @type = type
       @description = desc
       @required = required
+      @enum = enum
     end
   end
 
@@ -127,6 +128,7 @@ module RubyLLM
             description: param.description
           }.compact
 
+          schema[:enum] = param.enum if param.enum
           schema[:items] = default_items_schema if schema[:type] == 'array'
 
           [name.to_s, schema]

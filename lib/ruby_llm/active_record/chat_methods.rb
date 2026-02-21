@@ -108,13 +108,15 @@ module RubyLLM
         @chat.reset_messages!
 
         messages_list = messages_association.to_a
+        ordered_messages = order_messages_for_llm(messages_list)
+        message_indices = messages_list.each_with_index.to_h
         total = messages_list.length
         effective_distance = @_image_context_distance
 
-        messages_list.each_with_index do |msg, idx|
+        ordered_messages.each do |msg|
           skip = false
           if effective_distance && msg.role.to_sym == :user
-            distance_from_end = total - idx - 1
+            distance_from_end = total - message_indices.fetch(msg) - 1
             skip = distance_from_end > effective_distance
           end
           @chat.add_message(msg.to_llm(skip_attachments: skip))
@@ -123,20 +125,13 @@ module RubyLLM
         setup_persistence_callbacks
       end
 
-      def with_instructions(instructions, replace: false)
-        transaction do
-          messages_association.where(role: :system).destroy_all if replace
-          messages_association.create!(role: :system, content: instructions)
-        end
+      def with_instructions(instructions, append: false, replace: nil)
+        append = append_instructions?(append:, replace:)
+        persist_system_instruction(instructions, append:)
 
-        # Reload the association to clear the cached records and pick up the fresh state
-        # Without this, the association cache would still contain the deleted system message
+        # Ensure to_llm reads fresh records after replace/append writes.
         messages_association.reload
-
-        # Just call to_llm to ensure the chat is initialized - the system message
-        # is already persisted and will be loaded via messages_association.each
-        # Don't call with_instructions again or it will duplicate the system prompt
-        to_llm
+        to_llm.with_instructions(instructions, append:, replace:)
         self
       end
 
@@ -229,22 +224,32 @@ module RubyLLM
         self
       end
 
-      def create_user_message(content, with: nil)
-        content_text, attachments, content_raw = prepare_content_for_storage(content)
+      def add_message(message_or_attributes)
+        llm_message = message_or_attributes.is_a?(RubyLLM::Message) ? message_or_attributes : RubyLLM::Message.new(message_or_attributes)
+        content_text, attachments, content_raw = prepare_content_for_storage(llm_message.content)
 
-        message_record = messages_association.build(role: :user)
-        message_record.content = content_text
-        message_record.content_raw = content_raw if message_record.respond_to?(:content_raw=)
-        message_record.save!
+        attrs = { role: llm_message.role, content: content_text }
+        parent_tool_call_assoc = messages_association.klass.reflect_on_association(:parent_tool_call)
+        if parent_tool_call_assoc && llm_message.tool_call_id
+          tool_call_id = find_tool_call_id(llm_message.tool_call_id)
+          attrs[parent_tool_call_assoc.foreign_key] = tool_call_id if tool_call_id
+        end
 
-        persist_content(message_record, with) if with.present?
+        message_record = messages_association.create!(attrs)
+        message_record.update!(content_raw:) if message_record.respond_to?(:content_raw=)
+
         persist_content(message_record, attachments) if attachments.present?
+        persist_tool_calls(llm_message.tool_calls, message_record:) if llm_message.tool_calls.present?
 
         message_record
       end
 
-      def ask(message, with: nil, &)
-        create_user_message(message, with:)
+      def create_user_message(content, with: nil)
+        add_message(role: :user, content: build_content(content, with))
+      end
+
+      def ask(message = nil, with: nil, &)
+        add_message(role: :user, content: build_content(message, with))
         complete(&)
       end
 
@@ -301,6 +306,40 @@ module RubyLLM
         @chat
       end
 
+      def replace_persisted_system_instructions(instructions)
+        system_messages = messages_association.where(role: :system).order(:id).to_a
+
+        if system_messages.empty?
+          messages_association.create!(role: :system, content: instructions)
+          return
+        end
+
+        primary_message = system_messages.shift
+        primary_message.update!(content: instructions) if primary_message.content != instructions
+        system_messages.each(&:destroy!)
+      end
+
+      def append_instructions?(append:, replace:)
+        return append if replace.nil?
+
+        append || (replace == false)
+      end
+
+      def persist_system_instruction(instructions, append:)
+        transaction do
+          if append
+            messages_association.create!(role: :system, content: instructions)
+          else
+            replace_persisted_system_instructions(instructions)
+          end
+        end
+      end
+
+      def order_messages_for_llm(messages)
+        system_messages, non_system_messages = messages.partition { |msg| msg.role.to_s == 'system' }
+        system_messages + non_system_messages
+      end
+
       def persist_new_message
         @message = messages_association.create!(role: :assistant, content: '')
       end
@@ -346,15 +385,15 @@ module RubyLLM
       end
       # rubocop:enable Metrics/PerceivedComplexity
 
-      def persist_tool_calls(tool_calls)
-        tool_call_klass = @message.tool_calls_association.klass
+      def persist_tool_calls(tool_calls, message_record: @message)
+        tool_call_klass = message_record.tool_calls_association.klass
         supports_thought_signature = tool_call_klass.column_names.include?('thought_signature')
 
         tool_calls.each_value do |tool_call|
           attributes = tool_call.to_h
           attributes.delete(:thought_signature) unless supports_thought_signature
           attributes[:tool_call_id] = attributes.delete(:id)
-          @message.tool_calls_association.create!(**attributes)
+          message_record.tool_calls_association.create!(**attributes)
         end
       end
 
@@ -409,6 +448,16 @@ module RubyLLM
       rescue StandardError => e
         RubyLLM.logger.warn "Failed to process attachment #{source}: #{e.message}"
         nil
+      end
+
+      def build_content(message, attachments)
+        return message if content_like?(message)
+
+        RubyLLM::Content.new(message, attachments)
+      end
+
+      def content_like?(object)
+        object.is_a?(RubyLLM::Content) || object.is_a?(RubyLLM::Content::Raw)
       end
 
       def prepare_content_for_storage(content)

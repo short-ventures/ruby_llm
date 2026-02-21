@@ -30,7 +30,7 @@ module RubyLLM
       RubyLLM.logger.debug chunk.inspect if RubyLLM.config.log_stream_debug
 
       # Record time-to-first-token on first chunk with content
-      if @first_chunk_time.nil? && (chunk.content.present? || chunk.tool_call?)
+      if @first_chunk_time.nil? && (chunk_has_content?(chunk.content) || chunk.tool_call?)
         @first_chunk_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         @time_to_first_token = ((@first_chunk_time - @stream_start_time) * 1000).round(1)
       end
@@ -104,6 +104,13 @@ module RubyLLM
           thought_signature: sig
         )
       end
+    end
+
+    def chunk_has_content?(content)
+      return false if content.nil?
+      return !content.empty? if content.respond_to?(:empty?)
+
+      true
     end
 
     def parse_tool_arguments(arguments_string)

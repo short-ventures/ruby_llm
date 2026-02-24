@@ -154,6 +154,25 @@ RSpec.describe RubyLLM::Chat do
     end
   end
 
+  describe '#with_tool_execution' do
+    it 'sets the tool execution mode and returns self' do
+      chat = described_class.new
+
+      result = chat.with_tool_execution(mode: :single_tool_roundtrip)
+
+      expect(result).to eq(chat)
+      expect(chat.tool_execution_mode).to eq(:single_tool_roundtrip)
+    end
+
+    it 'raises for unsupported tool execution modes' do
+      chat = described_class.new
+
+      expect do
+        chat.with_tool_execution(mode: :parallel_everything)
+      end.to raise_error(ArgumentError, /Unsupported tool execution mode/)
+    end
+  end
+
   describe '#each' do
     it 'iterates through messages' do
       chat = described_class.new

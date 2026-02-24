@@ -46,6 +46,22 @@ RSpec.describe RubyLLM::Chat do
     end
   end
 
+  class SequenceToolA < RubyLLM::Tool # rubocop:disable Lint/ConstantDefinitionInBlock,RSpec/LeakyConstantDeclaration
+    description 'Sequence tool A'
+
+    def execute
+      'A result'
+    end
+  end
+
+  class SequenceToolB < RubyLLM::Tool # rubocop:disable Lint/ConstantDefinitionInBlock,RSpec/LeakyConstantDeclaration
+    description 'Sequence tool B'
+
+    def execute
+      'B result'
+    end
+  end
+
   class HaltingTool < RubyLLM::Tool # rubocop:disable Lint/ConstantDefinitionInBlock,RSpec/LeakyConstantDeclaration
     description 'A tool that halts conversation continuation'
 
@@ -547,6 +563,98 @@ RSpec.describe RubyLLM::Chat do
         expect(tool_message.content.attachments.first).to be_a(RubyLLM::Attachment)
         expect(tool_message.content.attachments.first.filename).to eq('ruby.png')
       end
+    end
+  end
+
+  describe 'tool execution modes' do
+    def build_tool_message_with_calls(*tool_calls)
+      RubyLLM::Message.new(
+        role: :assistant,
+        content: '',
+        tool_calls: tool_calls.index_by(&:id)
+      )
+    end
+
+    it 'keeps batch mode behavior and executes all tool calls from one assistant response' do
+      chat = RubyLLM.chat
+                    .with_tools(SequenceToolA, SequenceToolB)
+                    .with_tool_execution(mode: :batch)
+      provider = chat.instance_variable_get(:@provider)
+
+      call_a = RubyLLM::ToolCall.new(id: 'call_a', name: 'sequence_tool_a', arguments: {})
+      call_b = RubyLLM::ToolCall.new(id: 'call_b', name: 'sequence_tool_b', arguments: {})
+
+      allow(provider).to receive(:complete).and_return(
+        build_tool_message_with_calls(call_a, call_b),
+        RubyLLM::Message.new(role: :assistant, content: 'done')
+      )
+
+      response = chat.ask('run tools')
+
+      expect(response.content).to eq('done')
+      expect(provider).to have_received(:complete).twice
+
+      tool_call_message = assistant_tool_call_messages(chat).first
+      expect(tool_call_message.tool_calls.keys).to contain_exactly('call_a', 'call_b')
+      expect(chat.messages.count { |m| m.role == :tool }).to eq(2)
+    end
+
+    it 'executes one tool per roundtrip in single_tool_roundtrip mode and does not persist deferred calls' do
+      chat = RubyLLM.chat
+                    .with_tools(SequenceToolA, SequenceToolB)
+                    .with_tool_execution(mode: :single_tool_roundtrip)
+      provider = chat.instance_variable_get(:@provider)
+
+      initial_call_a = RubyLLM::ToolCall.new(id: 'call_a_1', name: 'sequence_tool_a', arguments: {})
+      deferred_call_b = RubyLLM::ToolCall.new(id: 'call_b_deferred', name: 'sequence_tool_b', arguments: {})
+      second_round_call_b = RubyLLM::ToolCall.new(id: 'call_b_2', name: 'sequence_tool_b', arguments: {})
+
+      responses = [
+        build_tool_message_with_calls(initial_call_a, deferred_call_b),
+        build_tool_message_with_calls(second_round_call_b),
+        RubyLLM::Message.new(role: :assistant, content: 'done')
+      ]
+      provider_inputs = []
+
+      allow(provider).to receive(:complete) do |messages, **_opts|
+        provider_inputs << messages.map { |m| [m.role, m.respond_to?(:tool_call_id) ? m.tool_call_id : nil, m.tool_call? ? m.tool_calls.keys : nil] }
+        responses.shift
+      end
+
+      response = chat.ask('run tools')
+
+      expect(response.content).to eq('done')
+      expect(provider).to have_received(:complete).exactly(3).times
+
+      assistant_calls = assistant_tool_call_messages(chat)
+      expect(assistant_calls.map { |m| m.tool_calls.keys }).to eq([ [ 'call_a_1' ], [ 'call_b_2' ] ])
+      expect(chat.messages.count { |m| m.role == :tool }).to eq(2)
+      expect(chat.messages.none? { |m| m.role == :tool && m.tool_call_id == 'call_b_deferred' }).to be(true)
+
+      second_provider_tool_results = provider_inputs[1].select { |role, tool_call_id, _| role == :tool && tool_call_id.present? }
+      expect(second_provider_tool_results.map { |_, tool_call_id, _| tool_call_id }).to eq([ 'call_a_1' ])
+    end
+
+    it 'preserves halt behavior in single_tool_roundtrip mode' do
+      chat = RubyLLM.chat
+                    .with_tools(HaltingTool, SequenceToolB)
+                    .with_tool_execution(mode: :single_tool_roundtrip)
+      provider = chat.instance_variable_get(:@provider)
+
+      halting_call = RubyLLM::ToolCall.new(id: 'call_halt', name: 'halting', arguments: {})
+      deferred_call = RubyLLM::ToolCall.new(id: 'call_b_deferred', name: 'sequence_tool_b', arguments: {})
+
+      allow(provider).to receive(:complete).and_return(build_tool_message_with_calls(halting_call, deferred_call))
+
+      response = chat.ask('run halt tool')
+
+      expect(response).to be_a(RubyLLM::Tool::Halt)
+      expect(response.content).to eq('Task completed successfully')
+      expect(provider).to have_received(:complete).once
+
+      tool_call_message = assistant_tool_call_messages(chat).first
+      expect(tool_call_message.tool_calls.keys).to eq([ 'call_halt' ])
+      expect(chat.messages.count { |m| m.role == :tool }).to eq(1)
     end
   end
 

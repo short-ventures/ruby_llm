@@ -5,7 +5,9 @@ module RubyLLM
   class Chat
     include Enumerable
 
-    attr_reader :model, :messages, :tools, :params, :headers, :schema
+    TOOL_EXECUTION_MODES = %i[batch single_tool_roundtrip].freeze
+
+    attr_reader :model, :messages, :tools, :params, :headers, :schema, :tool_execution_mode
 
     def initialize(model: nil, provider: nil, assume_model_exists: false, context: nil)
       if assume_model_exists && !provider
@@ -24,6 +26,7 @@ module RubyLLM
       @headers = {}
       @schema = nil
       @thinking = nil
+      @tool_execution_mode = :batch
       @on = {
         new_message: nil,
         end_message: nil,
@@ -91,6 +94,16 @@ module RubyLLM
 
     def with_params(**params)
       @params = params
+      self
+    end
+
+    def with_tool_execution(mode:)
+      mode = mode.to_sym
+      unless TOOL_EXECUTION_MODES.include?(mode)
+        raise ArgumentError, "Unsupported tool execution mode: #{mode.inspect} (expected one of #{TOOL_EXECUTION_MODES.join(', ')})"
+      end
+
+      @tool_execution_mode = mode
       self
     end
 
@@ -174,6 +187,8 @@ module RubyLLM
         end
       end
 
+      response = truncate_tool_calls_for_sequential_roundtrip(response)
+
       add_message response
       @on[:end_message]&.call(response)
 
@@ -238,6 +253,20 @@ module RubyLLM
       tool = tools[tool_call.name.to_sym]
       args = tool_call.arguments
       tool.call(args)
+    end
+
+    def truncate_tool_calls_for_sequential_roundtrip(response)
+      return response unless @tool_execution_mode == :single_tool_roundtrip
+      return response unless response.tool_call?
+      return response if response.tool_calls.size <= 1
+
+      first_id, first_tool_call = response.tool_calls.first
+      RubyLLM.logger.debug(
+        "[ToolExecutionMode] single_tool_roundtrip truncating tool calls " \
+        "from=#{response.tool_calls.size} to=1 kept=#{first_id}"
+      )
+
+      response.dup_with(tool_calls: { first_id => first_tool_call })
     end
 
     def effective_params

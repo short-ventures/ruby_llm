@@ -144,6 +144,11 @@ module RubyLLM
         self
       end
 
+      def with_tool_execution(...)
+        to_llm.with_tool_execution(...)
+        self
+      end
+
       def with_headers(...)
         to_llm.with_headers(...)
         self

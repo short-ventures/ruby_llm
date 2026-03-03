@@ -14,7 +14,10 @@ module RubyLLM
           "models/#{@model}:generateContent"
         end
 
-        def render_payload(messages, tools:, temperature:, model:, stream: false, schema: nil, thinking: nil) # rubocop:disable Metrics/ParameterLists
+        # rubocop:disable Metrics/ParameterLists,Lint/UnusedMethodArgument
+        def render_payload(messages, tools:, temperature:, model:, stream: false, schema: nil,
+                           thinking: nil, tool_prefs: nil)
+          tool_prefs ||= {}
           @model = model.id
           payload = {
             contents: format_messages(messages),
@@ -31,16 +34,19 @@ module RubyLLM
 
             # Enable streaming function call arguments for Gemini 3+ on Vertex AI
             if stream && supports_streaming_function_args?(model)
-              payload[:toolConfig] = {
-                functionCallingConfig: {
+              payload[:toolConfig] = (payload[:toolConfig] || {}).merge(
+                functionCallingConfig: (payload.dig(:toolConfig, :functionCallingConfig) || {}).merge(
                   streamFunctionCallArguments: true
-                }
-              }
+                )
+              )
             end
+            # Gemini doesn't support controlling parallel tool calls
+            payload[:toolConfig] = build_tool_config(tool_prefs[:choice]) unless tool_prefs[:choice].nil?
           end
 
           payload
         end
+        # rubocop:enable Metrics/ParameterLists,Lint/UnusedMethodArgument
 
         def supports_streaming_function_args?(model)
           # Gemini 2.5+ on Vertex AI support streaming function args
@@ -147,6 +153,9 @@ module RubyLLM
         def convert_schema_to_gemini(schema)
           return nil unless schema
 
+          # Extract inner schema if wrapper format (e.g., from RubyLLM::Schema.to_json_schema)
+          schema = schema[:schema] || schema
+
           GeminiSchema.new(schema).to_h
         end
 
@@ -242,7 +251,7 @@ module RubyLLM
         end
 
         def build_json_schema(schema)
-          normalized = RubyLLM::Utils.deep_dup(schema)
+          normalized = RubyLLM::Utils.deep_dup(schema[:schema])
           normalized.delete(:strict)
           normalized.delete('strict')
           RubyLLM::Utils.deep_stringify_keys(normalized)

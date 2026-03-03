@@ -84,6 +84,7 @@ After running the generator:
 
 ```bash
 rails db:migrate
+rails ruby_llm:load_models # v1.13+
 ```
 
 Your Rails app is now AI-ready!
@@ -191,6 +192,24 @@ RubyLLM.configure do |config|
   # config.model_registry_class = 'AIModel'
 end
 ```
+
+### Fiber-Safe ActiveRecord Connections for Async/Fiber Workloads
+{: .d-inline-block }
+
+Rails 7.2.1+ / 8.x
+{: .label .label-green }
+
+If your app performs database work inside Fibers (for example with async-based workflow stacks), use fiber-safe connection isolation:
+
+```ruby
+# config/application.rb
+config.active_support.isolation_level = :fiber
+```
+
+Why: Rails defaults to thread-based connection isolation. In fiber-heavy flows, that can cause intermittent connection-state issues. `:fiber` scopes ActiveRecord connections per Fiber instead of per Thread.
+
+> If you use this setting, prefer Rails versions with fiber isolation fixes (Rails 7.2.1+ / 8.x).
+{: .note }
 
 ### Setting Up Models with `acts_as` Helpers
 
@@ -438,7 +457,7 @@ chat.model.name # => "GPT-4"
 chat.model.context_window # => 128000
 chat.model.supports_vision # => true
 
-# Populate/refresh models from models.json
+# Populate/refresh models from models.json (v1.13+)
 rails ruby_llm:load_models
 
 # Query based on model attributes
@@ -449,6 +468,8 @@ Model.left_joins(:chats).group(:id).order('COUNT(chats.id) DESC')
 Model.where(supports_functions: true)
 Model.where(supports_vision: true)
 ```
+
+If the model registry table is empty (or not available yet), RubyLLM falls back to `models.json` for lookups (v1.13+).
 
 ### System Instructions
 

@@ -103,7 +103,8 @@ module RubyLLM
         RubyLLM.logger.info "[ChatMethods] Creating chat with model=#{model_record.model_id}, provider=#{effective_provider} (stored: #{model_record.provider})"
         @chat ||= (context || RubyLLM).chat(
           model: model_record.model_id,
-          provider: effective_provider
+          provider: effective_provider,
+          assume_model_exists: assume_model_exists || false
         )
         @chat.reset_messages!
 
@@ -121,6 +122,7 @@ module RubyLLM
           end
           @chat.add_message(msg.to_llm(skip_attachments: skip))
         end
+        reapply_runtime_instructions(@chat)
 
         setup_persistence_callbacks
       end
@@ -131,6 +133,14 @@ module RubyLLM
 
         # Ensure to_llm reads fresh records after replace/append writes.
         messages_association.reload
+        to_llm.with_instructions(instructions, append:, replace:)
+        self
+      end
+
+      def with_runtime_instructions(instructions, append: false, replace: nil)
+        append = append_instructions?(append:, replace:)
+        store_runtime_instruction(instructions, append:)
+
         to_llm.with_instructions(instructions, append:, replace:)
         self
       end
@@ -290,9 +300,10 @@ module RubyLLM
         if last.tool_call?
           last.destroy
         elsif last.tool_result?
-          tool_call_message = last.parent_tool_call.message
-          expected_results = tool_call_message.tool_calls.pluck(:id)
-          actual_results = tool_call_message.tool_results.pluck(:tool_call_id)
+          tool_call_message = last.parent_tool_call.message_association
+          expected_results = tool_call_message.tool_calls_association.pluck(:id)
+          fk_column = tool_call_message.class.reflections['tool_results'].foreign_key
+          actual_results = tool_call_message.tool_results.pluck(fk_column)
 
           if expected_results.sort != actual_results.sort
             tool_call_message.tool_results.each(&:destroy)
@@ -343,6 +354,26 @@ module RubyLLM
       def order_messages_for_llm(messages)
         system_messages, non_system_messages = messages.partition { |msg| msg.role.to_s == 'system' }
         system_messages + non_system_messages
+      end
+
+      def runtime_instructions
+        @runtime_instructions ||= []
+      end
+
+      def store_runtime_instruction(instructions, append:)
+        if append
+          runtime_instructions << instructions
+        else
+          @runtime_instructions = [instructions]
+        end
+      end
+
+      def reapply_runtime_instructions(chat)
+        return if runtime_instructions.empty?
+
+        first, *rest = runtime_instructions
+        chat.with_instructions(first)
+        rest.each { |instruction| chat.with_instructions(instruction, append: true) }
       end
 
       def persist_new_message

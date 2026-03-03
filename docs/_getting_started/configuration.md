@@ -55,6 +55,7 @@ RubyLLM.configure do |config|
   config.gemini_api_key = ENV['GEMINI_API_KEY']
   config.vertexai_project_id = ENV['GOOGLE_CLOUD_PROJECT'] # Available in v1.7.0+
   config.vertexai_location = ENV['GOOGLE_CLOUD_LOCATION']
+  config.vertexai_service_account_key = ENV['VERTEXAI_SERVICE_ACCOUNT_KEY'] # Optional: service account JSON key
   config.deepseek_api_key = ENV['DEEPSEEK_API_KEY']
   config.mistral_api_key = ENV['MISTRAL_API_KEY']
   config.perplexity_api_key = ENV['PERPLEXITY_API_KEY']
@@ -63,10 +64,11 @@ RubyLLM.configure do |config|
 
   # Local providers
   config.ollama_api_base = 'http://localhost:11434/v1'
+  config.ollama_api_key = ENV['OLLAMA_API_KEY'] # Available in v1.13.0+ (optional for authenticated/remote Ollama endpoints)
   config.gpustack_api_base = ENV['GPUSTACK_API_BASE']
   config.gpustack_api_key = ENV['GPUSTACK_API_KEY']
 
-  # AWS Bedrock (uses standard AWS credential chain if not set)
+  # AWS Bedrock (requires explicit credentials)
   config.bedrock_api_key = ENV['AWS_ACCESS_KEY_ID']
   config.bedrock_secret_key = ENV['AWS_SECRET_ACCESS_KEY']
   config.bedrock_region = ENV['AWS_REGION'] # Required for Bedrock
@@ -95,6 +97,15 @@ end
 ```
 
 These headers are optional and only needed for organization-specific billing or project tracking.
+
+### Vertex AI Authentication Configuration
+
+RubyLLM supports both Vertex AI authentication methods:
+
+- Application Default Credentials (ADC)
+- Service Account JSON key via `config.vertexai_service_account_key`
+
+If `vertexai_service_account_key` is not set, RubyLLM uses ADC.
 
 ## Custom Endpoints
 
@@ -258,6 +269,37 @@ Log levels:
 > Setting `config.logger` overrides `log_file` and `log_level` settings.
 {: .note }
 
+### Advanced Logging Options
+
+Use these options when you need deeper troubleshooting or safer handling of large debug payloads.
+
+```ruby
+RubyLLM.configure do |config|
+  # Enable verbose chunk-level stream debugging
+  config.log_stream_debug = true
+
+  # Available in v1.13.0+
+  # Timeout (seconds) used for regex-based log filtering
+  config.log_regexp_timeout = 1.5
+end
+```
+
+`log_stream_debug` notes:
+- Shows chunk-by-chunk streaming internals (accumulator state, parsing, tool chunks)
+- Useful for diagnosing streaming/provider parsing issues
+- Can also be enabled with `RUBYLLM_STREAM_DEBUG=true`
+
+`log_regexp_timeout` notes:
+- Available in `v1.13.0+`
+- Applies to regex filters used in request/response debug logging
+- Supported on Ruby `3.2+` (uses `Regexp.timeout`)
+- On Ruby `<3.2`, RubyLLM warns if set and continues without timeout
+- Helps bound regex execution time when debug logs contain very large payloads
+
+Built-in debug log redaction:
+- Large base64-like blobs are redacted as `[BASE64 DATA]`
+- Large embedding arrays are redacted as `[EMBEDDINGS ARRAY]`
+
 ### Debug Options
 
 ```ruby
@@ -337,6 +379,8 @@ RubyLLM.configure do |config|
   # Use Rails credentials
   config.openai_api_key = Rails.application.credentials.openai_api_key
   config.anthropic_api_key = Rails.application.credentials.anthropic_api_key
+  config.anthropic_api_base = ENV['ANTHROPIC_API_BASE'] # Available in v1.13.0+ (optional custom Anthropic endpoint)
+  config.ollama_api_key = ENV['OLLAMA_API_KEY'] # Available in v1.13.0+ (optional for remote/authenticated Ollama)
 
   # Use Rails logger
   config.logger = Rails.logger
@@ -389,10 +433,12 @@ RubyLLM.configure do |config|
   config.gemini_api_key = String
   config.vertexai_project_id = String  # GCP project ID
   config.vertexai_location = String     # e.g., 'us-central1'
+  config.vertexai_service_account_key = String # Optional: service account JSON key (ADC used when unset)
   config.deepseek_api_key = String
   config.mistral_api_key = String
   config.perplexity_api_key = String
   config.openrouter_api_key = String
+  config.ollama_api_key = String  # v1.13.0+
   config.gpustack_api_key = String
   config.xai_api_key = String
   config.azure_api_key = String  # v1.12.0+
@@ -400,6 +446,7 @@ RubyLLM.configure do |config|
 
   # Provider Endpoints
   config.azure_api_base = String  # v1.12.0+
+  config.anthropic_api_base = String  # v1.13.0+
   config.openai_api_base = String
   config.gemini_api_base = String  # v1.9.0+
   config.ollama_api_base = String
@@ -440,6 +487,7 @@ RubyLLM.configure do |config|
   config.log_file = String
   config.log_level = Symbol
   config.log_stream_debug = Boolean
+  config.log_regexp_timeout = Numeric  # v1.13.0+ (Ruby 3.2+ support)
 
   # Rails integration
   config.use_new_acts_as = Boolean

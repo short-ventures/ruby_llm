@@ -27,7 +27,7 @@ module RubyLLM
     end
 
     def add(chunk)
-      RubyLLM.logger.debug chunk.inspect if RubyLLM.config.log_stream_debug
+      RubyLLM.logger.debug { chunk.inspect } if RubyLLM.config.log_stream_debug
 
       # Record time-to-first-token on first chunk with content
       if @first_chunk_time.nil? && (chunk_has_content?(chunk.content) || chunk.tool_call?)
@@ -40,7 +40,7 @@ module RubyLLM
       handle_chunk_content(chunk)
       append_thinking_from_chunk(chunk)
       count_tokens chunk
-      RubyLLM.logger.debug inspect if RubyLLM.config.log_stream_debug
+      RubyLLM.logger.debug { inspect } if RubyLLM.config.log_stream_debug
     end
 
     def to_message(response)
@@ -121,7 +121,7 @@ module RubyLLM
     end
 
     def accumulate_tool_calls(new_tool_calls) # rubocop:disable Metrics/PerceivedComplexity,Metrics/AbcSize,Metrics/CyclomaticComplexity
-      RubyLLM.logger.debug "Accumulating tool calls: #{new_tool_calls}" if RubyLLM.config.log_stream_debug
+      RubyLLM.logger.debug { "Accumulating tool calls: #{new_tool_calls}" } if RubyLLM.config.log_stream_debug
       new_tool_calls.each_value do |tool_call|
         if tool_call.id
           # Skip tool calls without a name - can't create a valid entry without it
@@ -134,14 +134,14 @@ module RubyLLM
             handle_partial_tool_call(tool_call, tool_call_id)
           else
             # Complete tool call - store as-is
-            tool_call_arguments = case tool_call.arguments
-                                  when String
-                                    tool_call.arguments.empty? ? +'' : +tool_call.arguments.dup
-                                  when Hash
-                                    tool_call.arguments.empty? ? +'' : +JSON.generate(tool_call.arguments)
-                                  else
-                                    +''
-                                  end
+            tool_call_arguments = tool_call.arguments
+            if tool_call_arguments.nil? || (tool_call_arguments.respond_to?(:empty?) && tool_call_arguments.empty?)
+              tool_call_arguments = +''
+            elsif tool_call_arguments.is_a?(Hash)
+              tool_call_arguments = +JSON.generate(tool_call_arguments)
+            elsif tool_call_arguments.is_a?(String)
+              tool_call_arguments = +tool_call_arguments.dup
+            end
             @thought_signature ||= tool_call.thought_signature
             @tool_calls[tool_call.id] = ToolCall.new(
               id: tool_call_id,
@@ -161,9 +161,9 @@ module RubyLLM
               RubyLLM.logger.debug "[Continuation] Merging partialArgs into existing tool call: #{existing.name}"
               merge_partial_args(existing, partial_args)
             else
-              # Legacy string format continuation
-              partial = tool_call.arguments.is_a?(String) ? tool_call.arguments : JSON.generate(tool_call.arguments)
-              existing.arguments << partial if existing.arguments.is_a?(String)
+              fragment = tool_call.arguments
+              fragment = '' if fragment.nil?
+              existing.arguments << fragment
             end
             if tool_call.thought_signature && existing.thought_signature.nil?
               existing.thought_signature = tool_call.thought_signature

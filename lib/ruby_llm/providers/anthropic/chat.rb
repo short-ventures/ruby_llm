@@ -57,13 +57,11 @@ module RubyLLM
             max_tokens: model.max_tokens || 4096
           }
 
-          reasoning_payload = build_reasoning_payload(thinking)
-          if reasoning_payload
-            payload[:reasoning] = reasoning_payload
-          else
-            thinking_payload = build_thinking_payload(thinking)
-            payload[:thinking] = thinking_payload if thinking_payload
-          end
+          thinking_payload = build_thinking_payload(thinking, model)
+          payload[:thinking] = thinking_payload if thinking_payload
+
+          output_config = build_output_config_payload(thinking)
+          payload[:output_config] = output_config if output_config
 
           payload
         end
@@ -77,7 +75,14 @@ module RubyLLM
           end
           payload[:system] = system_content unless system_content.empty?
           payload[:temperature] = temperature unless temperature.nil?
-          payload[:output_config] = build_output_config(schema) if schema
+          if schema
+            schema_output_config = build_output_config(schema)
+            payload[:output_config] = if payload[:output_config]
+                                        RubyLLM::Utils.deep_merge(payload[:output_config], schema_output_config)
+                                      else
+                                        schema_output_config
+                                      end
+          end
         end
 
         def build_output_config(schema)
@@ -240,23 +245,18 @@ module RubyLLM
           end
         end
 
-        def build_reasoning_payload(thinking)
-          return nil unless thinking&.enabled?
-
-          effort = resolve_effort(thinking)
-          return nil if effort.nil? || effort.empty? || effort == 'none'
-
-          { effort: effort }
-        end
-
         def resolve_effort(thinking)
           effort = thinking.respond_to?(:effort) ? thinking.effort : nil
           effort = effort.to_s if effort.is_a?(Symbol)
-          effort.is_a?(String) ? effort : nil
+          effort = effort.to_s if effort.respond_to?(:to_s) && !effort.is_a?(String)
+          effort.is_a?(String) ? effort.downcase : nil
         end
 
-        def build_thinking_payload(thinking)
+        def build_thinking_payload(thinking, model)
           return nil unless thinking&.enabled?
+
+          effort = resolve_effort(thinking)
+          return { type: 'adaptive' } if adaptive_thinking_supported?(model) && !effort.nil? && !effort.empty? && effort != 'none'
 
           budget = resolve_budget(thinking)
           return nil unless budget
@@ -267,9 +267,23 @@ module RubyLLM
           }
         end
 
+        def build_output_config_payload(thinking)
+          return nil unless thinking&.enabled?
+
+          effort = resolve_effort(thinking)
+          return nil if effort.nil? || effort.empty? || effort == 'none'
+
+          { effort: effort }
+        end
+
         def resolve_budget(thinking)
           budget = thinking.respond_to?(:budget) ? thinking.budget : thinking
           budget.is_a?(Integer) ? budget : nil
+        end
+
+        def adaptive_thinking_supported?(model)
+          model_id = model.respond_to?(:id) ? model.id.to_s : model.to_s
+          model_id.match?(/claude-(opus|sonnet)-4-6/)
         end
       end
     end

@@ -53,8 +53,13 @@ module RubyLLM
             max_tokens: model.max_tokens || 4096
           }
 
-          thinking_payload = build_thinking_payload(thinking)
-          payload[:thinking] = thinking_payload if thinking_payload
+          reasoning_payload = build_reasoning_payload(thinking)
+          if reasoning_payload
+            payload[:reasoning] = reasoning_payload
+          else
+            thinking_payload = build_thinking_payload(thinking)
+            payload[:thinking] = thinking_payload if thinking_payload
+          end
 
           payload
         end
@@ -218,11 +223,26 @@ module RubyLLM
           end
         end
 
+        def build_reasoning_payload(thinking)
+          return nil unless thinking&.enabled?
+
+          effort = resolve_effort(thinking)
+          return nil if effort.nil? || effort.empty? || effort == 'none'
+
+          { effort: effort }
+        end
+
+        def resolve_effort(thinking)
+          effort = thinking.respond_to?(:effort) ? thinking.effort : nil
+          effort = effort.to_s if effort.is_a?(Symbol)
+          effort.is_a?(String) ? effort : nil
+        end
+
         def build_thinking_payload(thinking)
           return nil unless thinking&.enabled?
 
           budget = resolve_budget(thinking)
-          raise ArgumentError, 'Anthropic thinking requires a budget' if budget.nil?
+          return nil unless budget
 
           {
             type: 'enabled',
